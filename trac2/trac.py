@@ -18,6 +18,9 @@ class TracTicket(object):
         self._adaptor = adaptor
         self._ticket = ticket
 
+    def __repr__(self):
+        return "Ticket({})".format(self._ticket.id)
+
     def as_dict(self):
         """
         produce ticket representation as a dictionary
@@ -40,10 +43,13 @@ class TracTicket(object):
                 continue
 
             contributors[item].add('watcher')
-
-        for _, author, _, _, _, _ in self._ticket.get_changelog():
+        comments = []
+        for time, author, field, oldvalue, newvalue, permanent in self._ticket.get_changelog():
+            if field == 'comment':
+                comments.append(dict(author=author, message=newvalue, time=time))
             contributors[self._adaptor.user(author)].add('commenter')
 
+        tempo['comments'] = comments
         tempo['contributors'] = dict(contributors)
         tempo['id'] = self._ticket.id
         tempo['url'] = self._adaptor.env.abs_href.ticket(self._ticket.id)
@@ -54,7 +60,8 @@ class TracTicket(object):
         """
         mark the ticket as exported
         """
-
+        if url:
+            self._ticket.save_changes(comment="migrated to " + url)
 
 class TracAdaptor(object):
     """
@@ -64,12 +71,10 @@ class TracAdaptor(object):
         self._dry_run = dry_run
 
         self._milestones = config['milestones']
+        self._min_year = config['min_year']
 
         self._env = Environment(config['env'])
-        self._users = dict({
-            username: email for
-            username, _, email in self._env.get_known_users()
-        })
+        self._users = { key: value.strip() for key, _, value in self._env.get_known_users() if value}
 
     @property
     def env(self):
@@ -113,6 +118,12 @@ class TracAdaptor(object):
         if self._milestones:
             query.append('milestone={}'.format(
                 '|'.join(mstone for mstone in self._milestones)))
-
-        for ticket in Query.from_string(self._env, '&'.join(query)).execute():
-            yield self.ticket(ticket)
+        print "query: ", query
+        q = Query.from_string(self._env, '&'.join(query))
+        q.max = 10000000
+        res = q.execute()
+        res = filter(lambda ticket:(ticket['time'].year >= self._min_year), res)
+        for i, ticket in enumerate(res):
+            ticket = self.ticket(ticket)
+            print "handling ticket", ticket, i, "/", len(res)
+            yield ticket

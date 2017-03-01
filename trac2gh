@@ -2,12 +2,28 @@
 """
 export trac tickets to GitHub issues
 """
+import calendar
+import datetime
+import json
 from argparse import ArgumentParser
+from pprint import pprint
+
+import argh
 
 from trac2.convert import convert_text
 from trac2.github import GitHubAdaptor
 from trac2.trac import TracAdaptor
 
+
+def datetime2epoch(dt):
+    """Convert a non-naive datetime object to a UNIX epoch timestamp"""
+    if dt is not None:
+        return calendar.timegm(dt.utctimetuple())
+
+
+def toJson(obj):
+    if isinstance(obj, datetime.datetime):
+        return datetime2epoch(obj)
 
 def parse_config(filename):
     """
@@ -20,31 +36,92 @@ def parse_config(filename):
     return config
 
 
-def main():
-    """
-    entry point
-    """
-    parser = ArgumentParser(description=__doc__)
-
-    parser.add_argument('--dry-run', action='store_true',
-                        help='do not perform any modifications')
-    parser.add_argument('config', metavar='FILE',
-                        help='configuration file for the migration')
-
-    args = parser.parse_args()
-
-    config = parse_config(args.config)
-
-    github = GitHubAdaptor(config['github'], args.dry_run)
-
-    for ticket in TracAdaptor(config['trac'], args.dry_run).get_tickets():
+@argh.arg('--dry-run', action='store_true',
+                    help='do not perform any modifications')
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+def trac2gh(config, dry_run=False):
+    github = GitHubAdaptor(config['github'], dry_run)
+    all_tickets = {}
+    for ticket in TracAdaptor(config['trac'], dry_run).get_tickets():
         data = ticket.as_dict()
         data['description'] = convert_text(data['description'])
-
         issue, url = github.create_issue(data)
-
         ticket.mark_exported(issue, url)
 
 
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+@argh.arg('dump_file', metavar='FILE',
+                    help='output file name for the json dump')
+def trac2json(config, dump_file):
+    """ Connect to trac and dump the database as pre-processed intermediate json """
+    all_tickets = {}
+    for ticket in TracAdaptor(config['trac'], True).get_tickets():
+        data = ticket.as_dict()
+        data['description'] = convert_text(data['description'])
+        all_tickets[data['id']] = data
+        j = json.dumps(all_tickets, default=toJson, indent=2)
+        with open(dump_file, 'w') as f:
+            f.write(j)
+
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+@argh.arg('dump_file', metavar='FILE',
+                    help='input file name for the json dump')
+def build_user_mapping(config, dump_file):
+    """ Build the user mapping from trac to github """
+
+    with open(dump_file, 'r') as f:
+        all_tickets = json.load(f)
+    trac = TracAdaptor(config['trac'], True)
+    active_users = {}
+    id2emails = trac._users
+    emails2id = { v:k for k, v in id2emails.items()}
+    emails2id.update({ k:k for k, v in id2emails.items()})
+    for ticket in all_tickets.values():
+        for c in ticket['contributors'].keys():
+            if c in emails2id:
+                active_users.setdefault(emails2id[c], {"email": c, "activities": 0})
+                active_users[emails2id[c]]['activities'] += 1
+
+    print len(active_users), "active users"
+
+    github = GitHubAdaptor(config['github'], True)
+    not_mapped_users = {}
+    for k, v in active_users.items():
+        ret = github.find_user_in_commits(v['email'])
+        if ret is None:
+            not_mapped_users[v['email']] = v
+
+    still_not_mapped_users = github.find_users(not_mapped_users.keys())
+
+    print "unable to find mapping for following users"
+    still_not_mapped_users = sorted(
+        [ (not_mapped_users[email]['activities'], email) for email in still_not_mapped_users ])
+    for activities, email in still_not_mapped_users:
+        print activities, email
+
+
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+@argh.arg('dump_file', metavar='FILE',
+                    help='input file name for the json dump')
+def json2gh(config, dump_file):
+    """ Connect to github and create the issues from the pre-processed intermediate json """
+    trac = TracAdaptor(config['trac'], False)
+    github = GitHubAdaptor(config['github'], False)
+    with open(dump_file, 'r') as f:
+        all_tickets = json.load(f)
+    for ticket in sorted(all_tickets.values(), key=lambda x: x['time']):
+        if datetime.datetime.fromtimestamp(ticket['time']).year < 2015:
+            continue
+        issue, url = github.create_issue(ticket)
+        #trac.ticket(ticket).mark_exported(issue, url)
+
+parser = argh.ArghParser()
+parser.add_commands([trac2gh, trac2json, build_user_mapping, json2gh])
+
+# dispatching:
 if __name__ == '__main__':
-    main()
+    parser.dispatch()

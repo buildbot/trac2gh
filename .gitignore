@@ -89,3 +89,6 @@ ENV/
 .ropeproject
 
 misc/
+
+usr/
+Pipfile.lock

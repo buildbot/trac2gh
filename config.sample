@@ -15,7 +15,8 @@ trac = {
         '1.0.+',
         '2.0.+'
     ],
-
+    # don't migrate tickets created before this date
+    'min_year': 2014,
     # Use this Trac environment
     'env': '/usr/www/trac',
 
@@ -40,6 +41,10 @@ github = {
     # Migrate tickets to this particular repository
     'owner': 'owner',
     'repository': 'repository',
+
+    # upstream repository where to find commits matching user emails
+    'upstream_owner': 'owner',
+    'upstream_repository': 'repository',
 
     # these are username/e-mail to GitHub user mapping
     'mapping': {
