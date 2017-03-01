@@ -107,17 +107,17 @@ def build_user_mapping(config, dump_file):
                     help='configuration file for the migration')
 @argh.arg('dump_file', metavar='FILE',
                     help='input file name for the json dump')
-def json2gh(config, dump_file):
+def json2gh(config, dump_file, update_ticket=False, mention_people=False):
     """ Connect to github and create the issues from the pre-processed intermediate json """
     trac = TracAdaptor(config['trac'], False)
-    github = GitHubAdaptor(config['github'], False)
+    github = GitHubAdaptor(config['github'], False, only_from_cache=True, mention_people=mention_people)
     with open(dump_file, 'r') as f:
         all_tickets = json.load(f)
     for ticket in sorted(all_tickets.values(), key=lambda x: x['time']):
-        if datetime.datetime.fromtimestamp(ticket['time']).year < 2015:
-            continue
         issue, url = github.create_issue(ticket)
-        #trac.ticket(ticket).mark_exported(issue, url)
+        print url
+        if update_ticket:
+            trac.ticket(ticket).mark_exported(issue, url)
 
 parser = argh.ArghParser()
 parser.add_commands([trac2gh, trac2json, build_user_mapping, json2gh])

@@ -20,9 +20,10 @@ class GitHubAdaptor(object):
     """
     thin wrapper over github3 with the purpose of importin [trac] tickets
     """
-    def __init__(self, config, dry_run=False, only_from_cache=False):
+    def __init__(self, config, dry_run=False, only_from_cache=False, mention_people=False):
         self._dry_run = dry_run
-        self.only_from_cache = only_from_cache
+        self._only_from_cache = only_from_cache
+        self._mention_people = mention_people
         self._mapping = config['mapping']
         self._template = config['template']
 
@@ -111,7 +112,6 @@ class GitHubAdaptor(object):
         for email in emails:
             q = '{} in:email'.format(email)
             result = list(self._gh.search_users(q))
-            print q, result
             if len(result) == 1:
                 gh_user = result[0].user.login
                 self._users[email] = gh_user
@@ -138,7 +138,7 @@ class GitHubAdaptor(object):
 
         gh_user = self._users.get(user, None)
 
-        if gh_user is None and not self.only_from_cache:
+        if gh_user is None and not self._only_from_cache:
             gh_user = self._mapping.get(user, user)
 
             if gh_user.find('@') > 0:
@@ -157,17 +157,20 @@ class GitHubAdaptor(object):
             gh_user = "unknown_contributor"
 
         if gh_user[0] == '@':
-            display_user = gh_user  # this will result in a mention
+            if self._mention_people:
+                display_user = gh_user  # this will result in a mention
+            else:
+                display_user = gh_user[1:]
         else:
             parts = gh_user.split('@')
 
-            assert len(parts) in (1, 2), 'Special case, needs handling'
-
-            if len(parts) == 2:     # only first part of the e-mail
+            if len(parts) > 1:     # only first part of the e-mail
                 display_user = '`{}@...`'.format(parts[0])
             else:                   # use as is
-                display_user = '`{}`'.format(gh_user)
-
+                if self._mention_people:
+                    display_user = '@{}'.format(gh_user) # this will result in a mention
+                else:
+                    display_user = '`{}`'.format(gh_user)
         return display_user
 
     def _convert_contributors(self, contributors):
@@ -178,7 +181,6 @@ class GitHubAdaptor(object):
 
         for user, contributions in contributors.items():
             display_user = self._user_display(self.get_user(user))
-            print display_user, contributions
             result.append(display_user)
         return ', '.join(result)
 
@@ -188,10 +190,12 @@ class GitHubAdaptor(object):
             if comment.get('message'):
                 if "Ticket retargeted after milestone closed" not in comment['message']:
                     text = ""
-                    text += "Comment from: " + self._user_display(self.get_user(comment['author'])) + "\n"
+                    text += "_Comment from_: " + self._user_display(self.get_user(comment['author'])) + "\n"
+                    text += "_Date_: `" + format_date(comment['time']) + "`\n"
+                    text += "\n"
                     text += convert_text(self.get_user(comment['message']))
                     comments_text.append(text)
-        return "\n---\n".join(comments_text)
+        return "\n---\n".join(comments_text).encode("ascii", errors='ignore')
 
     def create_issue(self, ticket):
         """
