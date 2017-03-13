@@ -113,7 +113,7 @@ def json2gh(config, dump_file, update_ticket=False, mention_people=False):
     github = GitHubAdaptor(config['github'], False, only_from_cache=True, mention_people=mention_people)
     with open(dump_file, 'r') as f:
         all_tickets = json.load(f)
-    for ticket in sorted(all_tickets.values(), key=lambda x: x['time']):
+    for ticket in sorted(all_tickets.values(), key=lambda x: x['time'])[26:]:
         issue, url = github.create_issue(ticket)
         print url
         if update_ticket:

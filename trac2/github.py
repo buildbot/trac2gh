@@ -193,7 +193,7 @@ class GitHubAdaptor(object):
                     text += "_Comment from_: " + self._user_display(self.get_user(comment['author'])) + "\n"
                     text += "_Date_: `" + format_date(comment['time']) + "`\n"
                     text += "\n"
-                    text += convert_text(self.get_user(comment['message']))
+                    text += convert_text(comment['message'].encode("ascii", errors='ignore'))
                     comments_text.append(text)
         return "\n---\n".join(comments_text).encode("ascii", errors='ignore')
 
@@ -209,9 +209,11 @@ class GitHubAdaptor(object):
             body=self._template.format(
                 trac_id=ticket['id'], trac_url=ticket['url'],
                 users=self._convert_contributors(ticket['contributors']),
-                body=ticket['description'],
+                body=ticket['description'].encode("ascii", errors='ignore'),
                 creation_date=format_date(ticket['time']),
                 modification_date=format_date(ticket['changetime']),
                 comments=self._format_comments(ticket['comments'])),
             milestone=self.ensure_milestone(ticket['milestone']))
+        # slow it down to keep up wth the rate limiting specific to issue creation
+        time.sleep(3)
         return res, res.html_url
