@@ -8,6 +8,8 @@ from collections import defaultdict
 from trac.env import Environment
 from trac.ticket.model import Ticket
 from trac.ticket.query import Query
+from trac.wiki.api import WikiSystem
+from trac.wiki.model import WikiPage as TracWikiPage
 
 
 class TracTicket(object):
@@ -62,6 +64,15 @@ class TracTicket(object):
         """
         if url:
             self._ticket.save_changes(comment="migrated to " + url)
+
+
+class WikiPage(TracWikiPage):
+    def as_dict(self):
+        return dict(
+            name=self.name,
+            text=self.text
+        )
+
 
 class TracAdaptor(object):
     """
@@ -127,3 +138,12 @@ class TracAdaptor(object):
             ticket = self.ticket(ticket)
             print "handling ticket", ticket, i, "/", len(res)
             yield ticket
+
+    def get_wikipages(self):
+        """
+        yield all the tickets per self._env and self._milestones
+        """
+        w = WikiSystem(self._env)
+        for page in w.pages:
+            page = WikiPage(self._env, page)
+            yield page

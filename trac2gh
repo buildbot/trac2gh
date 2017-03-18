@@ -5,11 +5,9 @@ export trac tickets to GitHub issues
 import calendar
 import datetime
 import json
-from argparse import ArgumentParser
-from pprint import pprint
+import os
 
 import argh
-
 from trac2.convert import convert_text
 from trac2.github import GitHubAdaptor
 from trac2.trac import TracAdaptor
@@ -119,8 +117,39 @@ def json2gh(config, dump_file, update_ticket=False, mention_people=False):
         if update_ticket:
             trac.ticket(ticket).mark_exported(issue, url)
 
+
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+@argh.arg('dump_file', metavar='FILE',
+                    help='output file name for the json dump')
+def wiki_trac2json(config, dump_file):
+    """ Connect to trac and dump the database as pre-processed intermediate json """
+    all_wikis = {}
+    for wikipage in TracAdaptor(config['trac'], True).get_wikipages():
+        data = wikipage.as_dict()
+        data['text'] = convert_text(data['text'])
+        all_wikis[data['name']] = data
+        j = json.dumps(all_wikis, default=toJson, indent=2)
+        with open(dump_file, 'w') as f:
+            f.write(j)
+
+@argh.arg('config', metavar='FILE', type=parse_config,
+                    help='configuration file for the migration')
+@argh.arg('dump_file', metavar='FILE',
+                    help='input file name for the json dump')
+def wiki_json2dir(config, dump_file, output_dir):
+    """ Connect to github and create the issues from the pre-processed intermediate json """
+    with open(dump_file, 'r') as f:
+        all_tickets = json.load(f)
+    for ticket in all_tickets.values():
+        output_file = os.path.join(output_dir, ticket['name'] + ".md")
+        os.system("mkdir -p " + os.path.dirname(output_file))
+        with open(output_file, "w") as f:
+            f.write(ticket['text'].encode("utf8"))
+
+
 parser = argh.ArghParser()
-parser.add_commands([trac2gh, trac2json, build_user_mapping, json2gh])
+parser.add_commands([trac2gh, trac2json, build_user_mapping, json2gh, wiki_trac2json, wiki_json2dir])
 
 # dispatching:
 if __name__ == '__main__':
